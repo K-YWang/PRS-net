@@ -1,4 +1,6 @@
-**/ShapeNetCoreV2
+**/ShapeNetCoreV2/*.h5
+**/ShapeNetCoreV2/*.json
+**/ShapeNetCoreV2/*.txt
 **/train
 **/test
 **/val
