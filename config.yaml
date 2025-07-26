@@ -1,0 +1,30 @@
+# config.yaml
+dataset:
+  root: ./SNC_pt
+  train_split: train
+  val_split: val
+  test_split: test
+
+model:
+  input_nc: 1
+  output_nc: 32
+  conv_layers: 4
+  num_plane: 1
+  num_quat: 2
+  use_bn: true
+  activation: relu
+  bias_terms:
+    plane1: [0, 1, 0, 0]
+    quat1: [1, 0, 0, 0]
+    quat2: [1, 0, 0, 0]
+
+training:
+  batch_size: 16
+  epochs: 100
+  learning_rate: 0.001
+  seed: 42
+  device: cuda
+
+output:
+  save_dir: ./checkpoints
+  log_dir: ./logs

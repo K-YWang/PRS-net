@@ -1,11 +1,10 @@
 import os
 import h5py
 import numpy as np
-import scipy.io as sio
+import torch
 from glob import glob
 from scipy.spatial.transform import Rotation as R
 from scipy.spatial import cKDTree
-
 import random
 
 def load_hdf5_pointcloud(filepath):
@@ -36,17 +35,17 @@ def compute_closest_points(pc, grid_size=32):
     _, idx = tree.query(grid_pts)
     return pc[idx].reshape((grid_size, grid_size, grid_size, 3))
 
-def save_mat(out_path, Volume, surfaceSamples, vertices, faces, axisangle, closestPoints):
-    sio.savemat(out_path, {
-        'Volume': Volume,
-        'surfaceSamples': surfaceSamples,
-        'vertices': vertices,
-        'faces': faces,
-        'axisangle': axisangle,
-        'closestPoints': closestPoints
-    })
+def save_pt(out_path, Volume, surfaceSamples, vertices, faces, axisangle, closestPoints):
+    torch.save({
+        'Volume': torch.from_numpy(Volume).float(),                  # (32,32,32)
+        'surfaceSamples': torch.from_numpy(surfaceSamples).float(), # (P,3)
+        'vertices': torch.from_numpy(vertices).float(),             # (P,3)
+        'faces': torch.from_numpy(faces).long(),                    # (F,3) or (0,3)
+        'axisangle': torch.from_numpy(axisangle).float(),           # (4,)
+        'closestPoints': torch.from_numpy(closestPoints).float()    # (32,32,32,3)
+    }, out_path)
 
-def process_h5_to_mat_all(h5_dir, out_dir, grid_size=32):
+def process_h5_to_pt_all(h5_dir, out_dir, grid_size=32):
     os.makedirs(out_dir, exist_ok=True)
     h5_files = glob(os.path.join(h5_dir, '*.h5'))
     for h5_file in h5_files:
@@ -56,17 +55,16 @@ def process_h5_to_mat_all(h5_dir, out_dir, grid_size=32):
             rotated, axisangle = random_rotate(pc)
             Volume = pointcloud_to_voxel(rotated, grid_size)
             closestPoints = compute_closest_points(rotated, grid_size)
-            fname = f"{name_prefix}_pc_{i:05d}.mat"
+            fname = f"{name_prefix}_pc_{i:05d}.pt"
             fpath = os.path.join(out_dir, fname)
-            save_mat(fpath, Volume, rotated, rotated, np.zeros((0, 3), dtype=np.int32), axisangle, closestPoints)
+            save_pt(fpath, Volume, rotated, rotated, np.zeros((0, 3), dtype=np.int32), axisangle, closestPoints)
             print(f"Saved: {fpath}")
 
-# 示例调用
+# === 示例调用 ===
 if __name__ == '__main__':
-    random.seed(42)  # For reproducibility
-    np.random.seed(42)  # For reproducibility
+    random.seed(42)
+    np.random.seed(42)
 
-    
-    h5_dir = './ShapeNetCoreV2'             # ← 输入目录（包含多个 .h5 文件）
-    out_dir = './SNC_valid'   # ← 输出目录
-    process_h5_to_mat_all(h5_dir, out_dir, grid_size=32)
+    h5_dir = './ShapeNetCoreV2'           # 输入：.h5 点云数据目录
+    out_dir = './SNC_pt'                  # 输出：.pt 结构化数据
+    process_h5_to_pt_all(h5_dir, out_dir, grid_size=32)
