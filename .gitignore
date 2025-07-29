@@ -4,3 +4,6 @@
 **/train
 **/test
 **/val
+__pycache__
+**/logs
+**/checkpoints

@@ -1,22 +1,28 @@
 # config.yaml
 dataset:
-  root: ./SNC_pt
+  dataroot: ./data/SNC_pt
   train_split: train
   val_split: val
   test_split: test
 
 model:
   input_nc: 1
-  output_nc: 32
-  conv_layers: 4
-  num_plane: 1
-  num_quat: 2
+  output_nc: 4
+  conv_layers: 5
+  num_plane: 3
+  num_quat: 3
   use_bn: true
-  activation: relu
-  bias_terms:
-    plane1: [0, 1, 0, 0]
-    quat1: [1, 0, 0, 0]
-    quat2: [1, 0, 0, 0]
+  activation: lrelu
+
+loss:
+  grid_size: 32
+  grid_bound: 0.5
+  ref_weight: 1.0
+  rot_weight: 1.0
+  reg_plane_weight: 1.0
+  reg_rot_weight: 1.0
+
+  w_sym_reg: 25
 
 training:
   batch_size: 16
