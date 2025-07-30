@@ -2,6 +2,7 @@ import os
 import random
 import numpy as np
 import torch
+from datetime import datetime, timezone, timedelta
 
 from src.SNC_dataloader import create_dataloader , load_config
 from src.model.PrsNet_model import PRSNet
@@ -34,8 +35,12 @@ def main():
 
     os.makedirs(cfg.output.save_dir, exist_ok=True)
     os.makedirs(cfg.output.log_dir, exist_ok=True)
-
     logger = init_logger(cfg.output.log_dir)
+
+    timess = timezone(timedelta(hours=8))
+    run_ts = datetime.now(timess).strftime("%Y%m%d-%H%M%S")
+    run_dir = os.path.join(cfg.output.save_dir, run_ts)
+    os.makedirs(run_dir, exist_ok=True)
 
     # DataLoader
     train_loader = create_dataloader(cfg, split=cfg.dataset.train_split)
@@ -140,8 +145,8 @@ def main():
                     f"total={avg['tot']:.6f}  steps={steps}")
 
         # 保存模型与优化器（便于完整恢复）
-        model_path = os.path.join(cfg.output.save_dir, f"{epoch:05d}_net_PRSNet.pth")
-        optim_path = os.path.join(cfg.output.save_dir, f"{epoch:05d}_optim.pth")
+        model_path = os.path.join(run_dir, f"{epoch:05d}_net_PRSNet.pth")
+        optim_path = os.path.join(run_dir, f"{epoch:05d}_optim.pth")
         torch.save(model.state_dict(), model_path)
         torch.save(optimizer.state_dict(), optim_path)
         logger.info(f"Saved checkpoint: {model_path} & {optim_path}")

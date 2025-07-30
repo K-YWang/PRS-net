@@ -4,7 +4,6 @@ from torch.utils.data import Dataset, DataLoader
 import yaml
 from easydict import EasyDict
 
-
 class SNCVoxelDataset(Dataset):
     def __init__(self, dataroot, phase):
         self.root_dir = os.path.join(dataroot, phase)
@@ -22,7 +21,7 @@ class SNCVoxelDataset(Dataset):
     def __getitem__(self, idx):
         pt_path = self.pt_files[idx]
         try:
-            data = torch.load(pt_path)
+            data = torch.load(pt_path , weights_only=True)
             voxel = data['Volume'].float().unsqueeze(0)          # (1, 32, 32, 32)
             sample = data['surfaceSamples'].float()              # (N, 3)
             cp = data['closestPoints'].float().reshape(-1, 3)    # (32768, 3)
@@ -83,6 +82,7 @@ if __name__ == '__main__':
     train_loader = create_dataloader(config, split='train')
 
     print("Dataset and DataLoader initialized.")
+    print(f"Number of training samples: {len(train_loader.dataset)}")
     for i, batch in enumerate(train_loader):
         print(f"\n📦 Batch {i}")
         print("  Voxel shape:", batch['voxel'].shape)

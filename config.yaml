@@ -2,7 +2,6 @@
 dataset:
   dataroot: ./data/SNC_pt
   train_split: train
-  val_split: val
   test_split: test
 
 model:
@@ -21,13 +20,12 @@ loss:
   rot_weight: 1.0
   reg_plane_weight: 1.0
   reg_rot_weight: 1.0
-
   w_sym_reg: 25
 
 training:
   batch_size: 16
-  epochs: 100
-  learning_rate: 0.001
+  epochs: 20
+  learning_rate: 0.01
   seed: 42
   device: cuda
 
