@@ -1,3 +1,29 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
+"""
+process_SNC_hdf5.py
+
+读取 HDF5 点云与同前缀的 JSON 映射（两者均为 list）：
+  - id2file: list[str]，例如 "03001627/<model_id>.npy"
+  - id2name: list[str]，该样本的英文类别名（如 "chair"）
+
+对每个样本：
+  1) 先用 FPS 从 2048 均匀选取 1000 个点；
+  2) 随机旋转；
+  3) 栅格化为占据体素 Volume；
+  4) 计算体素中心的最近点场 closestPoints；
+  5) 保存 .pt，命名：<category>_<category_id>_<idx>.pt（例如 chair_03001627_0007.pt）。
+
+类别级策略：
+  - 每类最终生成 target=4000 个样本。若原始模型数 N >= target：随机抽取 4000 个模型各生成 1 个样本；
+    若 N < target：对每个模型的“FPS子集(1000点)”做多次**不同随机旋转**，直到凑满 4000。
+  - 按 8:2 分配 train/test（对每类内部 idx 进行划分）。
+
+依赖：
+  h5py, numpy, torch, scipy (Rotation, cKDTree)
+"""
+
 import os
 import json
 import math
@@ -23,16 +49,16 @@ def load_hdf5_pointcloud(filepath: str) -> np.ndarray:
     return data
 
 
-def random_rotate(pc: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+def random_rotate_with_rng(pc: np.ndarray, rng: np.random.Generator) -> Tuple[np.ndarray, np.ndarray]:
     """
-    对点云做一次随机旋转。
+    使用给定 RNG 对点云做一次随机旋转。
     返回：
       - 旋转后的点云 (N,3)
       - axis-angle 向量 (4,) = [axis_x, axis_y, axis_z, angle_rad]
     """
-    axis = np.random.randn(3)
+    axis = rng.standard_normal(3)
     axis /= (np.linalg.norm(axis) + 1e-12)
-    angle = np.random.rand() * 2 * np.pi
+    angle = rng.random() * 2 * np.pi
     rot = R.from_rotvec(axis * angle)
     return rot.apply(pc), np.append(axis, angle)
 
@@ -80,18 +106,16 @@ def save_pt(out_path: str,
     payload = {
         'Volume': torch.from_numpy(Volume).float(),                  # (gs,gs,gs)
         'surfaceSamples': torch.from_numpy(surfaceSamples).float(),  # (P,3)
-        'vertices': torch.from_numpy(vertices).float(),              # 兼容字段：与 surfaceSamples 一致
-        'faces': torch.from_numpy(faces).long(),                     # (F,3)，无面信息时写空 (0,3)
+        'vertices': torch.from_numpy(vertices).float(),              # (P,3)
+        'faces': torch.from_numpy(faces).long(),                     # (F,3)；无面信息时写空 (0,3)
         'axisangle': torch.from_numpy(axisangle).float(),            # (4,)
         'closestPoints': torch.from_numpy(closestPoints).float(),    # (gs,gs,gs,3)
-        # 新增类别元数据：
         'category': category,           # 英文类别名（来自 id2name list）
         'category_id': category_id,     # synset id（来自 id2file 第一段，如 03001627）
         'model_id': model_id,           # 具体模型 id（来自 id2file 第二段）
     }
     if meta is not None:
-        payload['meta'] = meta          # 源信息（来源文件、样本索引等）
-
+        payload['meta'] = meta
     torch.save(payload, out_path)
 
 
@@ -178,7 +202,7 @@ def process_all(
     grid_size: int = 32,
     per_class_target: int = 4000,
     train_ratio: float = 0.8,
-    sample_k: int = 1000,       # NEW: 先均匀下采样到 K 个点（默认 1000）
+    sample_k: int = 1000,       # 先均匀下采样到 K 个点（默认 1000）
     seed: int = 42
 ):
     """
@@ -253,6 +277,8 @@ def process_all(
     os.makedirs(train_dir, exist_ok=True)
     os.makedirs(test_dir, exist_ok=True)
 
+    total_train, total_test = 0, 0
+
     for cat_id, refs in cat_to_refs.items():
         # 保持同一 cat_id 下的 category_name 一致（万一有差异取第一个）
         category_name = refs[0][4] if refs else cat_id
@@ -264,18 +290,17 @@ def process_all(
 
         target = per_class_target
 
-        # 若原始模型数 >= 4000，则随机采样 4000；否则每模型做重复增强
+        # 若原始模型数 >= target，则随机采样 target；否则每模型做重复增强
         if N >= target:
             selected_refs = random.sample(refs, target)
             per_ref_reps = 1
         else:
-            per_ref_reps = math.ceil(target / N)
             selected_refs = refs
+            per_ref_reps = math.ceil(target / N)
 
-        # 先决定划分：8:2（对“生成序号”分割，这样总量严格 4000）
-        total_needed = target
-        test_count = int(round(total_needed * (1.0 - train_ratio)))
-        test_indices = set(random.sample(range(total_needed), test_count))
+        # 先决定划分：8:2（对“生成序号”分割，这样总量严格 target）
+        test_count = int(round(target * (1.0 - train_ratio)))
+        test_indices = set(random.sample(range(target), test_count))
 
         gen_count = 0  # 已生成的样本数（用于判定 train/test）
 
@@ -285,52 +310,61 @@ def process_all(
             if h5_path not in h5_cache:
                 h5_cache[h5_path] = load_hdf5_pointcloud(h5_path)  # (B,N,3)
 
-            pc_orig = h5_cache[h5_path][sample_idx]  # (N,3)   —— 原始 2048 点
+            pc_orig = h5_cache[h5_path][sample_idx]  # (N,3)   —— 原始点云（通常 N=2048）
 
-            # 先做 FPS 下采样到 sample_k（默认 1000）
+            # 先做 FPS 下采样到 sample_k（默认 1000），只做一次，重复旋转会用同一子集
             if pc_orig.shape[0] > sample_k:
                 idx_sel = farthest_point_sampling_np(pc_orig, k=sample_k, rng=rng)  # (K,)
                 pc_sub = pc_orig[idx_sel]                                           # (K,3)
             else:
                 pc_sub = pc_orig                                                     # (≤K,3)
 
-            # 对下采样后的点云做随机旋转
-            rotated, axisangle = random_rotate(pc_sub)                                # (K,3), (4,)
+            # 对同一个 pc_sub 重复做不同的随机旋转，直到凑满本类 target
+            for _ in range(per_ref_reps):
+                if gen_count >= target:
+                    break
 
-            # 体素化 & 最近点
-            Volume = pointcloud_to_voxel(rotated, grid_size)
-            closestPoints = compute_closest_points(rotated, grid_size)
+                rotated, axisangle = random_rotate_with_rng(pc_sub, rng)            # (K,3), (4,)
+                Volume = pointcloud_to_voxel(rotated, grid_size)
+                closestPoints = compute_closest_points(rotated, grid_size)
 
-            # 决定落盘目录（按照本类别的全局生成索引划分）
-            split_dir = test_dir if gen_count in test_indices else train_dir
+                # 决定落盘目录（按照本类别的全局生成索引划分）
+                split_dir = test_dir if gen_count in test_indices else train_dir
 
-            # 文件名：cg_cgid_idx.pt（cg=英文类别名，cgid=synset，idx=四位序号）
-            fname = f"{cat_name_safe}_{cat_id}_{gen_count:04d}.pt"
-            fpath = os.path.join(split_dir, fname)
+                # 文件名：<category>_<category_id>_<idx>.pt（idx 四位）
+                fname = f"{cat_name_safe}_{cat_id}_{gen_count:04d}.pt"
+                fpath = os.path.join(split_dir, fname)
 
-            # 保存（faces 不可得时保存空）
-            save_pt(
-                fpath,
-                Volume=Volume,
-                surfaceSamples=rotated,              # (K,3)
-                vertices=rotated,                    # 兼容字段
-                faces=np.zeros((0, 3), dtype=np.int64),
-                axisangle=axisangle,
-                closestPoints=closestPoints,         # (gs,gs,gs,3)
-                category=category_name_,             # 该条样本自身的英文类名
-                category_id=cat_id,                  # synset
-                model_id=model_id,                   # 模型 id
-                meta={
-                    "source_h5": os.path.basename(h5_path),
-                    "source_index": int(sample_idx),
-                }
-            )
-            gen_count += 1
+                # 保存（faces 不可得时保存空）
+                save_pt(
+                    fpath,
+                    Volume=Volume,
+                    surfaceSamples=rotated,              # (K,3)
+                    vertices=rotated,                    # 兼容字段
+                    faces=np.zeros((0, 3), dtype=np.int64),
+                    axisangle=axisangle,
+                    closestPoints=closestPoints,         # (gs,gs,gs,3)
+                    category=category_name_,             # 该条样本自身的英文类名
+                    category_id=cat_id,                  # synset
+                    model_id=model_id,                   # 模型 id
+                    meta={"source_h5": os.path.basename(h5_path),
+                          "source_index": int(sample_idx)}
+                )
+
+                # 统计
+                if gen_count in test_indices:
+                    total_test += 1
+                else:
+                    total_train += 1
+
+                gen_count += 1
 
             if gen_count >= target:
                 break  # 达到目标后提前结束该类的生成
 
-        print(f"  -> generated {gen_count} samples for category {cat_id} ({category_name})")
+        print(f"  -> generated {gen_count}/{target} samples for category {cat_id} ({category_name})")
+
+    print(f"\n[SUMMARY] train: {total_train} | test: {total_test} | total: {total_train + total_test}")
 
 
 # =========================
@@ -342,7 +376,7 @@ if __name__ == '__main__':
 
     # 输入：包含 trainX.h5 / trainX_id2file.json / trainX_id2name.json 等文件的目录
     h5_dir = './ShapeNetCoreV2'
-    out_root = './SNC_valid'
+    out_root = './SNC_valid'   # 输出根目录
 
     process_all(
         h5_dir=h5_dir,
@@ -350,6 +384,6 @@ if __name__ == '__main__':
         grid_size=32,
         per_class_target=4000,    # 每类 4000
         train_ratio=0.8,          # 8:2 划分
-        sample_k=1000,            # NEW：先 FPS 到 1000 点
+        sample_k=1000,            # 先 FPS 到 1000 点
         seed=42
     )
