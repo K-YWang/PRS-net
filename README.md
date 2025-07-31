@@ -94,9 +94,9 @@ loss:
   w_sym_reg: 25
 
 training:
-  batch_size: 256
-  epochs: 100
-  learning_rate: 0.004
+  batch_size: 32
+  epochs: 40
+  learning_rate: 0.01
   seed: 42
   device: cuda
 
