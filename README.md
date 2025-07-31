@@ -1,6 +1,6 @@
 # Reproducing PRS-Net
 
-本项目是 `PRS-Net: Planar Reflective Symmetry Detection Net for 3D Models` 论文的代码复现工作，原论文请参考：[PRS-Net](http://geometrylearning.com/prs-net/)。依据文中的给出的网络结构，数据以及参数信息，部分了参考原作者仓库[GithubRepo](https://github.com/IGLICT/PRS-Net)。
+本项目是 `PRS-Net: Planar Reflective Symmetry Detection Net for 3D Models` 论文的代码复现工作，原论文请参考：[PRS-Net](http://geometrylearning.com/prs-net/)。复现依据文中给出的网络结构，数据以及参数信息，部分参考原作者仓库[GithubRepo](https://github.com/IGLICT/PRS-Net)。
 
 ## Installation
 
@@ -40,9 +40,9 @@
 
 ## Data
 
-训练使用了 `ShapeNetCore V2` ，原数据集可到huggingface进行下载[[ShapeNet](https://huggingface.co/datasets/ShapeNet/ShapeNetCore)]，但是由于网络，数据集大小(~25G)还有申请下载等原因，获取相对麻烦耗时。我使用的是已经处理好的SNC V2的PointCloud版本，仅0.98G，然后经过处理得到需要的数据形式[[SN-POINTCLOUD](https://github.com/antao97/PointCloudDatasets.git)]。
+训练使用了 `ShapeNetCore V2` 数据集，其可到huggingface进行下载[[ShapeNet](https://huggingface.co/datasets/ShapeNet/ShapeNetCore)]，但是由于网络，数据集大小(~25G)还有申请下载等原因，获取相对麻烦耗时。我使用的是已经处理好的SNC V2的PointCloud版本，仅0.98G，然后经过处理操作仍然可以得到需要的数据形式[[SN-POINTCLOUD](https://github.com/antao97/PointCloudDatasets.git)]。
 
-`data/process_SNC_hdf5.py` 文件实现了处理上述数据集的代码，最终保存为pt文件，会有所需要的体素，label，最近网格等等信息，并且会自动处理使2048个点云涌fps算法均匀处理为1000个point，然后针对没有4k个样本的类别进行随机旋转增强得到4k样本，最后8:2划分为train，test进行存储。
+`data/process_SNC_hdf5.py` 文件实现了处理上述数据集的代码，最终保存为pt文件，会有所需要的体素，label，最近网格等等信息，并且会自动处理使2048个点云用fps算法均匀处理为1000个point，然后针对没有4k个样本的类别进行随机旋转增强得到4k样本，最后8:2划分为train，test进行存储。
 
 **下载完成之后执行下列命令：**
 
@@ -66,7 +66,7 @@ cd data && python process_SNC_hdf5.py
 
 ### Config.yaml
 
-针对训练的所有设置都在`./config.yaml`文件中，更改配置请直接修改。
+针对训练的所有设置都在`./config.yaml`文件中，更改配置可直接修改。
 
 ```yaml
 # config.yaml
